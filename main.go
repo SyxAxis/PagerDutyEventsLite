@@ -109,26 +109,25 @@ type PDEventAcknowledge struct {
 
 //
 func FlagUsage() {
-	fmt.Println("\n")
+	fmt.Print("\n")
 	fmt.Printf("PagerDuty Util Lite - %s", relversion)
-	fmt.Println("\n")
-	fmt.Println("--routing_key  	", "<string> - The primary routing key for the PD event rule or service")
-	fmt.Println("--keyname      	", "<string> - Unique user defined key.")
-	fmt.Println("--event        	", "<string> - Must be one of { trigger | acknowledge | resolve}")
-	fmt.Println("--severity     	", "<string> - {info | critical | warning | error} ")
-	fmt.Println("--msg          	", "<string> - Primary message alert title.")
-	fmt.Println("--source       	", "<string> - Source of the alert, advise use of hostname.")
-	fmt.Println("--details      	", "<string> - Simple logging details for the alert.")
-	fmt.Println("--jdetails     	", "<string> - JSON formatted structure declaring sets of key:value pairs with log information sets. ( OPT )")
-	fmt.Println("--proxy_server 	", "<string> - Force specific proxy server ( default use HTTP_PROXY/HTTPS_PROXY from environment).")
-	fmt.Println("--JSONresult      	", "Return result in JSON format.")
-	fmt.Println("--saveJSONresponse	", "Save the JSON result to a file names <keyname>.json.")
-	fmt.Println("\n")
+	fmt.Print("\n\n")
+	fmt.Println("--routing_key           ", "<string> - The primary routing key for the PD event rule or service")
+	fmt.Println("--keyname               ", "<string> - Unique user defined key.")
+	fmt.Println("--event                 ", "<string> - Must be one of { trigger | acknowledge | resolve}")
+	fmt.Println("--severity              ", "<string> - {info | critical | warning | error} ")
+	fmt.Println("--msg                   ", "<string> - Primary message alert title.")
+	fmt.Println("--source                ", "<string> - Source of the alert, advise use of hostname. ( OPT )")
+	fmt.Println("--details               ", "<string> - Simple logging details for the alert. ( OPT )")
+	fmt.Println("--jsondetailsfile       ", "<string> - JSON formatted text file with sets of key/value pairs holding extra alerting info. ( OPT )")
+	fmt.Println("--proxy_server          ", "<string> - Force specific proxy server ( default use HTTP_PROXY/HTTPS_PROXY from environment). ( OPT )")
+	fmt.Print("\n")
+	fmt.Println("--jsonresult            ", "Return result to STDOUT in JSON format. Useful for other apps that need to capture the result. ( OPT )")
+	fmt.Println("--savejsonresponse      ", "Save the JSON result to a file. ( OPT )")
+	fmt.Print("\n")
 	fmt.Println("Note : ")
-	fmt.Println("  - If you need to use a proxy then set HTTP_PROXY or HTTPS_PROXY in the environment first ( set on Windows cmd line or export on Unix ).")
-	fmt.Println("  - When supplying <jdetails> param, be sure to escape the double-quotes. PowerShell : '{\\\"key01\\\":\\\"value01\\\"}'")
-	fmt.Println("  - When supplying <jdetails> param it will override <details> param, although both will be sent to PD if supplied.")
-	fmt.Println("\n")
+	fmt.Println("  - If you need to use a proxy then HTTP_PROXY or HTTPS_PROXY are drawn from the environment by default.")
+	fmt.Print("\n\n")
 
 }
 
@@ -189,6 +188,30 @@ func DumpJSONResultToFile(PDCallJSONDumPFile string, PDCallJSONResponseBody stri
 	}
 }
 
+func ReadInCustomJSONFile(fileNameLocation string) (tmpJSONStr []byte) {
+
+	file, err := os.Open(fileNameLocation)
+	if err != nil {
+		log.Fatalln("Failed to read the JSON file: ")
+		log.Fatal(err)
+	}
+	defer func() {
+		if err := file.Close(); err != nil {
+			log.Fatalln("Failed to close the JSON file reader:")
+			log.Fatal(err)
+		}
+	}()
+
+	tmpJSONStr, err = ioutil.ReadAll(file)
+	if err != nil {
+		log.Fatalln("Failed to read the JSON file reader: ")
+		log.Fatal(err)
+	}
+
+	return tmpJSONStr
+
+}
+
 func main() {
 
 	clfRoutingKey := flag.String("routing_key", "", "<string> - The primary routing key for the PD event rule or service")
@@ -197,11 +220,11 @@ func main() {
 	clfUniqueKey := flag.String("keyname", "", "<string> - Unique user defined key.")
 	clfAction := flag.String("event", "trigger", "<string> - Must be one of { trigger | acknowledge | resolve}")
 	clfAlertDetails := flag.String("details", "", "<string> - JSON formatted details for the alert")
-	clfCustomJSONDetails := flag.String("jdetails", "", "<string> - JSON formatted details for the alert")
+	clfCustomJSONDetailsFile := flag.String("jsondetailsfile", "", "<string> - JSON formatted text file with key/value pairs of alerting info")
 	clfSeverity := flag.String("severity", "", "<string> - {info | critical | warning | error} ")
-	clfRtnJSONRslt := flag.Bool("JSONresult", false, "Return result in JSON format.")
+	clfRtnJSONRslt := flag.Bool("jsonresult", false, "Return result in JSON format.")
 	clfShowOpsLog := flag.Bool("showlog", false, "Display the output of the operations.")
-	clfDumpJSONResultToFile := flag.Bool("saveJSONresponse", false, "Save the JSON result to a file names <keyname>.json ")
+	clfDumpJSONResultToFile := flag.Bool("savejsonresponse", false, "Save the JSON result to a file names <keyname>.json ")
 
 	// clfJSONLogDetails := flag.String("jdetails", "", "JSON formatted log details.")
 	clfProxyServer := flag.String("proxy_server", "", "Force use of specific proxy server.")
@@ -249,25 +272,30 @@ func main() {
 		// define type, start with nothing
 		customJSONDetails := json.RawMessage("{}")
 		// if it needs to be updated with a real value off the cmd line then swap that in
-		if len(*clfCustomJSONDetails) > 0 && len(*clfAlertDetails) > 0 {
-			FuncOutputMsg("Custom Details   : " + *clfCustomJSONDetails)
+		if len(*clfCustomJSONDetailsFile) > 0 && len(*clfAlertDetails) > 0 {
+			FuncOutputMsg("Custom JSON File : " + *clfCustomJSONDetailsFile)
 			FuncOutputMsg("Alert Details    : " + *clfAlertDetails)
-			tmpJSONStr := *clfCustomJSONDetails
-			if strings.HasPrefix(tmpJSONStr, "{") {
+
+			tmpJSONStr := ReadInCustomJSONFile(*clfCustomJSONDetailsFile)
+
+			if strings.HasPrefix(string(tmpJSONStr), "{") {
 				// tmpJSONStr = tmpJSONStr[:len(tmpJSONStr)-len("}")]
 				tmpJSONStr = tmpJSONStr[1:]
-				newJSONStr := "{\"details\":\"" + *clfAlertDetails + "\"," + tmpJSONStr
+				newJSONStr := "{\"extra details\":\"" + *clfAlertDetails + "\"," + string(tmpJSONStr)
 				customJSONDetails = json.RawMessage(newJSONStr)
 			} else {
 				FuncOutputMsg("Unable to append 'details' into 'jdetails'. 'jdetails' param must start with valid '{' character.")
-				customJSONDetails = json.RawMessage(*clfCustomJSONDetails)
+				customJSONDetails = json.RawMessage(tmpJSONStr)
 			}
+
+			// customJSONDetails = json.RawMessage(tmpJSONStr)
+
 		} else if len(*clfAlertDetails) > 0 {
 			FuncOutputMsg("Alert Details    : " + *clfAlertDetails)
-			customJSONDetails = json.RawMessage("{\"details\":\"" + *clfAlertDetails + "\"}")
-		} else if len(*clfCustomJSONDetails) > 0 {
-			FuncOutputMsg("Custom Details   : " + *clfCustomJSONDetails)
-			customJSONDetails = json.RawMessage(*clfCustomJSONDetails)
+			customJSONDetails = json.RawMessage("{\"extra details\":\"" + *clfAlertDetails + "\"}")
+		} else if len(*clfCustomJSONDetailsFile) > 0 {
+			FuncOutputMsg("Custom JSON File : " + *clfCustomJSONDetailsFile)
+			customJSONDetails = json.RawMessage(ReadInCustomJSONFile(*clfCustomJSONDetailsFile))
 		}
 
 		// now fill in the structs that will be used to draw up the JSON to send off

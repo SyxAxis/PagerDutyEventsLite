@@ -1,0 +1,12 @@
+{
+    "json_key_01": "json_data_01",
+    "json_key_02": "data with spaces",
+    "json_key_03": "\\\\data\\with\\path\\separators\\",
+    "json_key_04": "/data/with/unix/path/separators/",
+    "json_key_05": true,
+    "json_key_06": false,
+    "json_key_07": null,
+    "json_key_08": 111,
+    "json_key_09": "",
+    "json_key_10": "json_data_10"
+}
