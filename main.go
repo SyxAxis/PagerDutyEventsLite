@@ -12,7 +12,7 @@ import (
 	"strings"
 )
 
-var relversion = "1.2"
+var relversion = "1.3"
 
 // ====================================================================================================
 //
@@ -112,21 +112,26 @@ func FlagUsage() {
 	fmt.Print("\n")
 	fmt.Printf("PagerDuty Util Lite - %s", relversion)
 	fmt.Print("\n\n")
-	fmt.Println("--routing_key           ", "<string> - The primary routing key for the PD event rule or service")
-	fmt.Println("--keyname               ", "<string> - Unique user defined key.")
-	fmt.Println("--event                 ", "<string> - Must be one of { trigger | acknowledge | resolve}")
-	fmt.Println("--severity              ", "<string> - {info | critical | warning | error} ")
-	fmt.Println("--msg                   ", "<string> - Primary message alert title.")
-	fmt.Println("--source                ", "<string> - Source of the alert, advise use of hostname. ( OPT )")
-	fmt.Println("--details               ", "<string> - Simple logging details for the alert. ( OPT )")
-	fmt.Println("--jsondetailsfile       ", "<string> - JSON formatted text file with sets of key/value pairs holding extra alerting info. ( OPT )")
-	fmt.Println("--proxy_server          ", "<string> - Force specific proxy server ( default use HTTP_PROXY/HTTPS_PROXY from environment). ( OPT )")
+	fmt.Println("--routing_key           ", "<string> - (reqd) - The primary routing key for the PD event rule or service (REQD)")
+	fmt.Println("--keyname               ", "<string> - (reqd) - Unique user defined key.")
+	fmt.Println("--event                 ", "<string> - (reqd) - Must be one of { trigger | acknowledge | resolve}")
+	fmt.Println("--severity              ", "<string> - (reqd) - {info | critical | warning | error} ")
+	fmt.Println("--msg                   ", "<string> - (reqd) - Primary message alert title.")
+	fmt.Println("--source                ", "<string> - (reqd) - Source of the alert, advise use of hostname.")
+	fmt.Println("--details               ", "<string> - (opt)  - Simple logging details for the alert.")
+	fmt.Println("--jsondetailsfile       ", "<string> - (opt)  - JSON formatted text file with sets of key/value pairs holding extra alerting info.")
+	fmt.Println("--proxy_server          ", "<string> - (opt)  - Force specific proxy server ( default use HTTP_PROXY/HTTPS_PROXY from environment).")
 	fmt.Print("\n")
-	fmt.Println("--jsonresult            ", "Return result to STDOUT in JSON format. Useful for other apps that need to capture the result. ( OPT )")
-	fmt.Println("--savejsonresponse      ", "Save the JSON result to a file. ( OPT )")
+	fmt.Println("--jsonresult            ", "(opt) - Return result to STDOUT in JSON format. Useful for other apps that need to capture the result.")
+	fmt.Println("--savejsonresponse      ", "(opt) - Save the JSON result to a file.")
 	fmt.Print("\n")
 	fmt.Println("Note : ")
 	fmt.Println("  - If you need to use a proxy then HTTP_PROXY or HTTPS_PROXY are drawn from the environment by default.")
+	fmt.Print("\n")
+	fmt.Println("Examples : ")
+	fmt.Println("  .\\pagerdutylite.exe --routing_key aaabbbccccdddeeefff1112223334445 --keyname \"TestEvent12345\" --event trigger --severity error --msg \"TestEvent Title\" --source \"testsys\" --jsonresult")
+	fmt.Println("  .\\pagerdutylite.exe --routing_key aaabbbccccdddeeefff1112223334445 --keyname \"TestEvent12345\" --event acknowledge --jsonresult")
+	fmt.Println("  .\\pagerdutylite.exe --routing_key aaabbbccccdddeeefff1112223334445 --keyname \"TestEvent12345\" --event resolve --jsonresult")
 	fmt.Print("\n\n")
 
 }
@@ -218,10 +223,10 @@ func main() {
 	clfMessageSummary := flag.String("msg", "", "<string> - Primary message alert title.")
 	clfAlertSource := flag.String("source", "", "<string> - Source of the alert, advise use of hostname.")
 	clfUniqueKey := flag.String("keyname", "", "<string> - Unique user defined key.")
-	clfAction := flag.String("event", "trigger", "<string> - Must be one of { trigger | acknowledge | resolve}")
+	clfEventAction := flag.String("event", "trigger", "<string> - Must be one of { trigger | acknowledge | resolve}")
 	clfAlertDetails := flag.String("details", "", "<string> - JSON formatted details for the alert")
 	clfCustomJSONDetailsFile := flag.String("jsondetailsfile", "", "<string> - JSON formatted text file with key/value pairs of alerting info")
-	clfSeverity := flag.String("severity", "", "<string> - {info | critical | warning | error} ")
+	clfEventSeverity := flag.String("severity", "", "<string> - {info | critical | warning | error} ")
 	clfRtnJSONRslt := flag.Bool("jsonresult", false, "Return result in JSON format.")
 	clfShowOpsLog := flag.Bool("showlog", false, "Display the output of the operations.")
 	clfDumpJSONResultToFile := flag.Bool("savejsonresponse", false, "Save the JSON result to a file names <keyname>.json ")
@@ -235,9 +240,6 @@ func main() {
 	// parse the inbound flags
 	flag.Parse()
 
-	// fmt.Println(*clfCustomJSONDetails)
-	// fmt.Println(*clfUniqueKey)
-
 	// optional flag to output the log
 	showlog = *clfShowOpsLog
 	rtnJSONrslt = *clfRtnJSONRslt
@@ -248,20 +250,47 @@ func main() {
 	// start building the struct for JSON delivery
 	jsonReq := []byte{}
 
-	var takeAction string
-	if strings.ToUpper(*clfAction) == "TRIGGER" || strings.ToUpper(*clfAction) == "T" {
-		takeAction = "trigger"
-	} else if strings.ToUpper(*clfAction) == "ACKNOWLEDGE" || strings.ToUpper(*clfAction) == "A" {
-		takeAction = "acknowledge"
-	} else if strings.ToUpper(*clfAction) == "RESOLVE" || strings.ToUpper(*clfAction) == "R" {
-		takeAction = "resolve"
+	// some basic input validation
+	if len(*clfRoutingKey) < 20 {
+		fmt.Println("RoutingKey must be one a 20 character string. Exiting.")
+		os.Exit(1)
 	}
 
+	var takeAction string
+	if strings.ToLower(*clfEventAction) == "trigger" ||
+		strings.ToLower(*clfEventAction) == "acknowledge" ||
+		strings.ToLower(*clfEventAction) == "resolve" {
+		takeAction = strings.ToLower(*clfEventAction)
+	} else {
+		fmt.Println("EventAction must be one of \"trigger\", \"acknowledge\" or \"resolve\". Exiting.")
+		os.Exit(1)
+	}
 	FuncOutputMsg("Action           : " + takeAction)
 
+	// =====================================================================
 	if takeAction == "trigger" {
 
-		FuncOutputMsg("Severity         : " + *clfSeverity)
+		if len(*clfMessageSummary) < 1 {
+			fmt.Println("MessageSummary must be at least 1 character!. Exiting.")
+			os.Exit(1)
+		}
+
+		if len(*clfAlertSource) < 1 {
+			fmt.Println("AlertSource must be at least 1 character!. Exiting.")
+			os.Exit(1)
+		}
+
+		if strings.ToLower(*clfEventSeverity) == "info" ||
+			strings.ToLower(*clfEventSeverity) == "critical" ||
+			strings.ToLower(*clfEventSeverity) == "warning" ||
+			strings.ToLower(*clfEventSeverity) == "error" {
+
+		} else {
+			fmt.Println("EventSeverity must be one of \"info\", \"critical\", \"warning\" or \"error\". Exiting.")
+			os.Exit(1)
+		}
+
+		FuncOutputMsg("Severity         : " + *clfEventSeverity)
 		FuncOutputMsg("Message Source   : " + *clfAlertSource)
 		FuncOutputMsg("Message Summary  : " + *clfMessageSummary)
 
@@ -301,7 +330,7 @@ func main() {
 		// now fill in the structs that will be used to draw up the JSON to send off
 		pyld := PayLoad{*clfMessageSummary,
 			*clfAlertSource,
-			*clfSeverity,
+			*clfEventSeverity,
 			&customJSONDetails}
 
 		mainPyLd := PDEventTrigger{
